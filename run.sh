@@ -1,0 +1,1 @@
+python mnist.py --dataset mnist --epochs 100 --batch-size 256 --lr 0.15 --gaussian-noise-multiplier 1.0 --max-grad-norm 1.0 --target-delta 1e-5
