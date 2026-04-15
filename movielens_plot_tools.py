@@ -6,7 +6,7 @@ import matplotlib.pyplot as plt
 # =========================
 # 基本配置
 # =========================
-CSV_FILE = "outputs/mnist.csv"   # ← 改这里
+CSV_FILE = "outputs/movielens.csv"
 SAVE_DIR = os.path.dirname(CSV_FILE)
 
 # 读取数据
@@ -70,20 +70,20 @@ plt.plot(
 
 plt.xlabel("Epochs")
 plt.ylabel("Epsilon")
-# plt.title("MNIST Privacy Budget")   # ← 改标题
+# plt.title("MovieLens Privacy Budget")
 
 plt.grid(True, linestyle="--", alpha=0.3)
 
 plt.legend(
     loc="lower right",
-    bbox_to_anchor=(1, 0.15),
+    bbox_to_anchor=(1, 0.1),
     frameon=True,
     framealpha=0.9
 )
 
 plt.tight_layout()
 plt.savefig(
-    os.path.join(SAVE_DIR, "mnist_epsilon_plot.png"),  # ← 文件名
+    os.path.join(SAVE_DIR, "movielens_epsilon_plot.png"),
     dpi=300,
     bbox_inches="tight"
 )
@@ -91,13 +91,13 @@ plt.show()
 
 
 # =========================
-# Accuracy 图
+# RMSE 图
 # =========================
 plt.figure(figsize=(8, 6))
 
 plt.plot(
     df["epoch"],
-    df["product_accuracy"] * 100,
+    df["product_test_rmse"],
     color="red",
     linewidth=2,
     linestyle="-",
@@ -106,7 +106,7 @@ plt.plot(
 
 plt.plot(
     df["epoch"],
-    df["gaussian_accuracy"] * 100,
+    df["gaussian_test_rmse"],
     color="blue",
     linewidth=2,
     linestyle="--",
@@ -115,7 +115,7 @@ plt.plot(
 
 plt.plot(
     df["epoch"],
-    df["baseline_accuracy"] * 100,
+    df["baseline_test_rmse"],
     color="black",
     linewidth=2,
     linestyle="-.",
@@ -123,15 +123,15 @@ plt.plot(
 )
 
 plt.xlabel("Epochs")
-plt.ylabel("Test Accuracy (%)")
-# plt.title("MNIST Test Accuracy")   # ← 改标题
+plt.ylabel("Test RMSE")
+# plt.title("MovieLens Test RMSE")
 
 plt.grid(True, linestyle="--", alpha=0.3)
-plt.legend(loc="lower right", frameon=True, framealpha=0.9)
+plt.legend(loc="upper right", frameon=True, framealpha=0.9)
 
 plt.tight_layout()
 plt.savefig(
-    os.path.join(SAVE_DIR, "mnist_accuracy_plot.png"),  # ← 文件名
+    os.path.join(SAVE_DIR, "movielens_rmse_plot.png"),
     dpi=300,
     bbox_inches="tight"
 )

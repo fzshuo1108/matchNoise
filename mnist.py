@@ -15,7 +15,7 @@ from torchvision import datasets, transforms
 from torch.utils.data import DataLoader
 
 from opacus import PrivacyEngine
-from opacus.accountants import RDPAccountant, GaussianAccountant, PRVAccountant
+from opacus.accountants import GaussianAccountant, PRVAccountant
 
 from product_noise import ProductPrivacyEngine
 
@@ -171,7 +171,7 @@ def main():
     parser = argparse.ArgumentParser()
 
     parser.add_argument("--data-root", default="./data")
-    parser.add_argument("--epochs", type=int, default=30)
+    parser.add_argument("--epochs", type=int, default=50)
     parser.add_argument("--batch-size", type=int, default=256)
 
     parser.add_argument("--lr", type=float, default=0.15)
@@ -204,6 +204,7 @@ def main():
 
     gaussian_model = copy.deepcopy(base_model).to(device)
     product_model = copy.deepcopy(base_model).to(device)
+    baseline_model = copy.deepcopy(base_model).to(device)
 
     gaussian_optimizer = optim.SGD(
         gaussian_model.parameters(),
@@ -213,6 +214,12 @@ def main():
 
     product_optimizer = optim.SGD(
         product_model.parameters(),
+        lr=args.lr,
+        momentum=args.momentum,
+    )
+
+    baseline_optimizer = optim.SGD(
+        baseline_model.parameters(),
         lr=args.lr,
         momentum=args.momentum,
     )
@@ -238,9 +245,9 @@ def main():
     )
 
     # Standalone Gaussian accountants for CLT/GDP and PRV
-    gaussian_ma_accountant = gaussian_engine.accountant          # RDP / "MA"
-    gaussian_clt_accountant = GaussianAccountant()              # gdp / CLT-style
-    gaussian_prv_accountant = PRVAccountant()                   # prv
+    gaussian_ma_accountant = gaussian_engine.accountant
+    gaussian_clt_accountant = GaussianAccountant()
+    gaussian_prv_accountant = PRVAccountant()
 
     # For manual stepping of CLT/GDP and PRV
     gaussian_sample_rate = 1.0 / len(train_loader_g)
@@ -279,6 +286,7 @@ def main():
         "gaussian_accuracy",
         "product_epsilon",
         "product_accuracy",
+        "baseline_accuracy",
     ])
 
     print("\n===== Experiment Configuration =====")
@@ -323,9 +331,18 @@ def main():
             device=device,
         )
 
+        # Baseline model (non-private)
+        train_one_epoch(
+            model=baseline_model,
+            loader=train_loader,
+            optimizer=baseline_optimizer,
+            device=device,
+        )
+
         # Accuracy
         g_acc = evaluate(gaussian_model, test_loader, device)
         p_acc = evaluate(product_model, test_loader, device)
+        b_acc = evaluate(baseline_model, test_loader, device)
 
         # Epsilons
         g_eps_ma = gaussian_ma_accountant.get_epsilon(args.target_delta)
@@ -341,8 +358,11 @@ def main():
             f"acc: {g_acc:.6f}"
         )
         print(
-            f"Product  eps: {p_eps:.6f}, "
+            f"Product eps: {p_eps:.6f}, "
             f"acc: {p_acc:.6f}"
+        )
+        print(
+            f"Baseline acc: {b_acc:.6f}"
         )
 
         writer.writerow([
@@ -353,6 +373,7 @@ def main():
             g_acc,
             p_eps,
             p_acc,
+            b_acc,
         ])
 
     csv_file.close()

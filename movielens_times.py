@@ -10,6 +10,7 @@ import random
 import urllib.request
 import zipfile
 from pathlib import Path
+from datetime import datetime
 
 import numpy as np
 import pandas as pd
@@ -56,7 +57,7 @@ class MovieLensDataset(Dataset):
     def __getitem__(self, idx):
         user = self.data[idx, 0]
         movie = self.data[idx, 1]
-        rating = self.data[idx, 2] - 1
+        rating = self.data[idx, 2] - 1  # map [1,5] -> [0,4]
         return (
             torch.tensor(user, dtype=torch.long),
             torch.tensor(movie, dtype=torch.long),
@@ -123,7 +124,7 @@ def Download_Extract_MovieLens(data_root):
             zip_ref.extractall(data_root)
 
 
-def load_MovieLens(data_root, training_data=800167):
+def load_MovieLens(data_root, training_data=800000):
     Download_Extract_MovieLens(data_root)
 
     data_path = os.path.join(data_root, "ml-1m", "ratings.dat")
@@ -153,10 +154,10 @@ def load_MovieLens(data_root, training_data=800167):
 
 
 # -----------------------------
-# Metrics
+# Evaluate
 # -----------------------------
 @torch.no_grad()
-def evaluate_rmse(model, device, test_loader):
+def evaluate_rmse(model, device, loader):
     model.eval()
     criterion = nn.CrossEntropyLoss()
 
@@ -164,7 +165,7 @@ def evaluate_rmse(model, device, test_loader):
     all_preds = []
     all_targets = []
 
-    for users, movies, ratings in tqdm(test_loader, leave=False):
+    for users, movies, ratings in tqdm(loader, leave=False):
         users = users.to(device)
         movies = movies.to(device)
         ratings = ratings.to(device)
@@ -186,42 +187,7 @@ def evaluate_rmse(model, device, test_loader):
 # -----------------------------
 # Training
 # -----------------------------
-def train_one_epoch_gaussian(
-    model,
-    device,
-    train_loader,
-    optimizer,
-):
-    model.train()
-    criterion = nn.CrossEntropyLoss()
-
-    losses = []
-    all_preds = []
-    all_targets = []
-
-    for users, movies, ratings in tqdm(train_loader, leave=False):
-        users = users.to(device)
-        movies = movies.to(device)
-        ratings = ratings.to(device)
-
-        optimizer.zero_grad()
-        output = model(users, movies)
-        loss = criterion(output, ratings)
-        loss.backward()
-        optimizer.step()
-
-        preds = torch.argmax(output, dim=1)
-
-        losses.append(loss.item())
-        all_preds.extend(preds.detach().cpu().numpy())
-        all_targets.extend(ratings.detach().cpu().numpy())
-
-    train_loss = float(np.mean(losses)) if losses else 0.0
-    train_rmse = float(np.sqrt(mean_squared_error(all_targets, all_preds)))
-    return train_loss, train_rmse
-
-
-def train_one_epoch_product(
+def train_one_epoch_rmse(
     model,
     device,
     train_loader,
@@ -269,47 +235,10 @@ def matched_product_sigma_M(model, gaussian_sigma, max_grad_norm):
     return sigma_M, M
 
 
-# -----------------------------
-# Main
-# -----------------------------
-def main():
-    parser = argparse.ArgumentParser(description="MovieLens Gaussian vs Product Noise (RMSE only)")
-
-    # 直接按你表里的 MLens 参数
-    parser.add_argument("-N", "--training-data", type=int, default=800167)
-    parser.add_argument("-b", "--batch-size", type=int, default=10000)
-    parser.add_argument("--test-batch-size", type=int, default=1000)
-    parser.add_argument("-n", "--epochs", type=int, default=20)
-
-    parser.add_argument("--lr", type=float, default=0.01)
-    parser.add_argument("--sigma", type=float, default=0.60)
-    parser.add_argument("-c", "--max-per-sample-grad_norm", type=float, default=5.0)
-
-    parser.add_argument("--delta0", type=float, default=1e-12)
-    parser.add_argument("-k", type=int, default=20000)
-
-    parser.add_argument(
-        "--device",
-        type=str,
-        default="cuda" if torch.cuda.is_available() else "cpu"
-    )
-
-    parser.add_argument("--secure-rng", action="store_true", default=False)
-    parser.add_argument("--data-root", type=str, default="../data")
-    parser.add_argument("--save-dir", type=str, default="./outputs")
-    parser.add_argument("--seed", type=int, default=42)
-
-    args = parser.parse_args()
-    set_seed(args.seed)
-
+def run_one_experiment(args, run_seed):
+    set_seed(run_seed)
     device = torch.device(args.device)
 
-    save_dir = Path(args.save_dir)
-    save_dir.mkdir(parents=True, exist_ok=True)
-
-    # -----------------------------
-    # Data
-    # -----------------------------
     train_data, test_data = load_MovieLens(
         data_root=args.data_root,
         training_data=args.training_data,
@@ -327,25 +256,21 @@ def main():
         shuffle=False,
     )
 
-    # -----------------------------
-    # Two models
-    # -----------------------------
     base_model = MovieLensModel(NUM_USERS, NUM_MOVIES)
 
     gaussian_model = copy.deepcopy(base_model).to(device)
     product_model = copy.deepcopy(base_model).to(device)
+    baseline_model = copy.deepcopy(base_model).to(device)
 
     gaussian_optimizer = optim.Adam(gaussian_model.parameters(), lr=args.lr)
     product_optimizer = optim.Adam(product_model.parameters(), lr=args.lr)
+    baseline_optimizer = optim.Adam(baseline_model.parameters(), lr=args.lr)
 
-    # -----------------------------
-    # Gaussian side (no extra accountant logic)
-    # -----------------------------
+    # Gaussian side: keep DP training, but no epsilon collection
     gaussian_engine = PrivacyEngine(
         secure_mode=args.secure_rng,
         accountant="rdp",
     )
-
     gaussian_model, gaussian_optimizer, train_loader_g = gaussian_engine.make_private(
         module=gaussian_model,
         optimizer=gaussian_optimizer,
@@ -355,9 +280,7 @@ def main():
         poisson_sampling=False,
     )
 
-    # -----------------------------
-    # Product side
-    # -----------------------------
+    # Product side: keep DP training, but no epsilon collection
     product_sigma_M, M = matched_product_sigma_M(
         product_model,
         args.sigma,
@@ -379,53 +302,37 @@ def main():
         max_grad_norm=args.max_per_sample_grad_norm,
     )
 
-    # -----------------------------
-    # CSV
-    # -----------------------------
-    csv_path = save_dir / "movielens_test_rmse_only.csv"
-    csv_file = open(csv_path, "w", newline="", encoding="utf-8")
-    writer = csv.writer(csv_file)
+    results = []
 
-    writer.writerow([
-        "epoch",
-        "gaussian_test_rmse",
-        "product_test_rmse",
-    ])
-
-    print("\n===== MovieLens RMSE-Only Experiment =====")
+    print(f"\n========== Run seed = {run_seed} ==========")
     print("dataset=MovieLens-1M")
     print(f"device={device}")
     print(f"training_data={args.training_data}")
-    print(f"epochs={args.epochs}")
-    print(f"batch_size={args.batch_size}")
-    print(f"test_batch_size={args.test_batch_size}")
-    print(f"lr={args.lr}")
-    print(f"sigma={args.sigma}")
-    print(f"max_grad_norm={args.max_per_sample_grad_norm}")
-    print(f"delta0={args.delta0}")
-    print(f"k={args.k}")
     print(f"model_dimension_M={M}")
-    print(f"matched_product_sigma_M={product_sigma_M}")
-    print("==========================================\n")
+    print(f"product_sigma_M={product_sigma_M:.6f}")
 
-    # -----------------------------
-    # Train
-    # -----------------------------
     for epoch in range(1, args.epochs + 1):
-        print(f"\nEpoch {epoch}/{args.epochs}")
+        print(f"\nRun {run_seed} | Epoch {epoch}/{args.epochs}")
 
-        g_train_loss, g_train_rmse = train_one_epoch_gaussian(
+        g_train_loss, g_train_rmse = train_one_epoch_rmse(
             model=gaussian_model,
             device=device,
             train_loader=train_loader_g,
             optimizer=gaussian_optimizer,
         )
 
-        p_train_loss, p_train_rmse = train_one_epoch_product(
+        p_train_loss, p_train_rmse = train_one_epoch_rmse(
             model=product_model,
             device=device,
             train_loader=train_loader_p,
             optimizer=product_optimizer,
+        )
+
+        b_train_loss, b_train_rmse = train_one_epoch_rmse(
+            model=baseline_model,
+            device=device,
+            train_loader=train_loader,
+            optimizer=baseline_optimizer,
         )
 
         g_test_loss, g_test_rmse = evaluate_rmse(
@@ -435,6 +342,11 @@ def main():
         )
         p_test_loss, p_test_rmse = evaluate_rmse(
             product_model,
+            device,
+            test_loader,
+        )
+        b_test_loss, b_test_rmse = evaluate_rmse(
+            baseline_model,
             device,
             test_loader,
         )
@@ -451,16 +363,138 @@ def main():
             f"test_loss={p_test_loss:.6f} "
             f"test_rmse={p_test_rmse:.6f}"
         )
+        print(
+            f"[Baseline] train_loss={b_train_loss:.6f} "
+            f"train_rmse={b_train_rmse:.6f} "
+            f"test_loss={b_test_loss:.6f} "
+            f"test_rmse={b_test_rmse:.6f}"
+        )
 
+        results.append({
+            "epoch": epoch,
+            "gaussian_train_rmse": g_train_rmse,
+            "gaussian_test_rmse": g_test_rmse,
+            "product_train_rmse": p_train_rmse,
+            "product_test_rmse": p_test_rmse,
+            "baseline_train_rmse": b_train_rmse,
+            "baseline_test_rmse": b_test_rmse,
+        })
+
+    return results
+
+
+def average_results(all_runs_results, epochs):
+    averaged = []
+
+    for epoch_idx in range(epochs):
+        rows = [run[epoch_idx] for run in all_runs_results]
+
+        averaged.append({
+            "epoch": rows[0]["epoch"],
+            "gaussian_train_rmse": float(np.mean([r["gaussian_train_rmse"] for r in rows])),
+            "gaussian_test_rmse": float(np.mean([r["gaussian_test_rmse"] for r in rows])),
+            "product_train_rmse": float(np.mean([r["product_train_rmse"] for r in rows])),
+            "product_test_rmse": float(np.mean([r["product_test_rmse"] for r in rows])),
+            "baseline_train_rmse": float(np.mean([r["baseline_train_rmse"] for r in rows])),
+            "baseline_test_rmse": float(np.mean([r["baseline_test_rmse"] for r in rows])),
+        })
+
+    return averaged
+
+
+# -----------------------------
+# Main
+# -----------------------------
+def main():
+    parser = argparse.ArgumentParser(
+        description="MovieLens Gaussian vs Product vs Baseline (RMSE only, 5-run average)"
+    )
+
+    parser.add_argument("-N", "--training-data", type=int, default=800167)
+    parser.add_argument("-b", "--batch-size", type=int, default=10000)
+    parser.add_argument("--test-batch-size", type=int, default=1000)
+    parser.add_argument("-n", "--epochs", type=int, default=20)
+
+    parser.add_argument("--lr", type=float, default=0.01)
+    parser.add_argument("--sigma", type=float, default=0.6)
+    parser.add_argument("-c", "--max-per-sample-grad_norm", type=float, default=5.0)
+
+    parser.add_argument("--delta0", type=float, default=1e-12)
+    parser.add_argument("-k", type=int, default=20000)
+
+    parser.add_argument("--device", type=str, default="cpu")
+    parser.add_argument("--secure-rng", action="store_true", default=False)
+    parser.add_argument("--data-root", type=str, default="../data")
+    parser.add_argument("--save-dir", type=str, default="./outputs")
+    parser.add_argument("--seed", type=int, default=42)
+    parser.add_argument("--num-runs", type=int, default=5)
+
+    args = parser.parse_args()
+    device = torch.device(args.device)
+
+    save_dir = Path(args.save_dir)
+    save_dir.mkdir(parents=True, exist_ok=True)
+
+    temp_model = MovieLensModel(NUM_USERS, NUM_MOVIES)
+    _, M = matched_product_sigma_M(
+        temp_model,
+        args.sigma,
+        args.max_per_sample_grad_norm,
+    )
+    product_sigma_M = math.sqrt(M) * args.sigma * args.max_per_sample_grad_norm
+
+    print("\n===== MovieLens Experiment Configuration =====")
+    print("dataset=MovieLens-1M")
+    print(f"device={device}")
+    print(f"training_data={args.training_data}")
+    print(f"epochs={args.epochs}")
+    print(f"batch_size={args.batch_size}")
+    print(f"test_batch_size={args.test_batch_size}")
+    print(f"lr={args.lr}")
+    print(f"gaussian_sigma={args.sigma}")
+    print(f"max_grad_norm={args.max_per_sample_grad_norm}")
+    print(f"delta0={args.delta0}")
+    print(f"k={args.k}")
+    print(f"model_dimension_M={M}")
+    print(f"matched_product_sigma_M={product_sigma_M}")
+    print(f"num_runs={args.num_runs}")
+    print("=============================================\n")
+
+    all_runs_results = []
+    for run_idx in range(args.num_runs):
+        run_seed = args.seed + run_idx
+        run_results = run_one_experiment(args, run_seed)
+        all_runs_results.append(run_results)
+
+    averaged_results = average_results(all_runs_results, args.epochs)
+
+    now = datetime.now().strftime("%Y-%m-%d_%H-%M-%S")
+    csv_path = save_dir / f"movielens_rmse_only_{now}.csv"
+
+    with open(csv_path, "w", newline="", encoding="utf-8") as csv_file:
+        writer = csv.writer(csv_file)
         writer.writerow([
-            epoch,
-            g_test_rmse,
-            p_test_rmse,
+            "epoch",
+            "gaussian_train_rmse",
+            "gaussian_test_rmse",
+            "product_train_rmse",
+            "product_test_rmse",
+            "baseline_train_rmse",
+            "baseline_test_rmse",
         ])
-        csv_file.flush()
 
-    csv_file.close()
-    print(f"\nCSV results saved to: {csv_path}")
+        for row in averaged_results:
+            writer.writerow([
+                row["epoch"],
+                row["gaussian_train_rmse"],
+                row["gaussian_test_rmse"],
+                row["product_train_rmse"],
+                row["product_test_rmse"],
+                row["baseline_train_rmse"],
+                row["baseline_test_rmse"],
+            ])
+
+    print(f"\nAveraged CSV saved to: {csv_path}")
 
 
 if __name__ == "__main__":

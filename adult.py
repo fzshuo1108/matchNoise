@@ -220,7 +220,8 @@ def main():
 
     parser.add_argument("--k", type=int, default=150000)
 
-    parser.add_argument("--device", type=str, default="cpu")
+    # parser.add_argument("--device", type=str, default="cpu")
+    parser.add_argument("--device", default="cuda" if torch.cuda.is_available() else "cpu")
     parser.add_argument("--data-path", type=str, default="../adult.data")
     parser.add_argument("--save-dir", type=str, default="./outputs")
     parser.add_argument("--seed", type=int, default=42)
