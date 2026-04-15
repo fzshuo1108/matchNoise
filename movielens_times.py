@@ -352,22 +352,13 @@ def run_one_experiment(args, run_seed):
         )
 
         print(
-            f"[Gaussian] train_loss={g_train_loss:.6f} "
-            f"train_rmse={g_train_rmse:.6f} "
-            f"test_loss={g_test_loss:.6f} "
-            f"test_rmse={g_test_rmse:.6f}"
+            f"[Gaussian] train_rmse={g_train_rmse:.6f} test_rmse={g_test_rmse:.6f}"
         )
         print(
-            f"[Product ] train_loss={p_train_loss:.6f} "
-            f"train_rmse={p_train_rmse:.6f} "
-            f"test_loss={p_test_loss:.6f} "
-            f"test_rmse={p_test_rmse:.6f}"
+            f"[Product ] train_rmse={p_train_rmse:.6f} test_rmse={p_test_rmse:.6f}"
         )
         print(
-            f"[Baseline] train_loss={b_train_loss:.6f} "
-            f"train_rmse={b_train_rmse:.6f} "
-            f"test_loss={b_test_loss:.6f} "
-            f"test_rmse={b_test_rmse:.6f}"
+            f"[Baseline] train_rmse={b_train_rmse:.6f} test_rmse={b_test_rmse:.6f}"
         )
 
         results.append({
@@ -422,7 +413,7 @@ def main():
     parser.add_argument("--delta0", type=float, default=1e-12)
     parser.add_argument("-k", type=int, default=20000)
 
-    parser.add_argument("--device", type=str, default="cpu")
+    parser.add_argument("--device", default="cuda" if torch.cuda.is_available() else "cpu")
     parser.add_argument("--secure-rng", action="store_true", default=False)
     parser.add_argument("--data-root", type=str, default="../data")
     parser.add_argument("--save-dir", type=str, default="./outputs")

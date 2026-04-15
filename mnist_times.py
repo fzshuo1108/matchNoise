@@ -260,22 +260,13 @@ def run_one_experiment(args, run_seed):
         b_test_loss, b_acc = evaluate(baseline_model, test_loader, device)
 
         print(
-            f"[Gaussian] train_loss={g_train_loss:.6f} "
-            f"train_acc={g_train_acc:.6f} "
-            f"test_loss={g_test_loss:.6f} "
-            f"test_acc={g_acc:.6f}"
+            f"[Gaussian] train_acc={g_train_acc:.6f} test_acc={g_acc:.6f}"
         )
         print(
-            f"[Product ] train_loss={p_train_loss:.6f} "
-            f"train_acc={p_train_acc:.6f} "
-            f"test_loss={p_test_loss:.6f} "
-            f"test_acc={p_acc:.6f}"
+            f"[Product] train_acc={p_train_acc:.6f} test_acc={p_acc:.6f}"
         )
         print(
-            f"[Baseline] train_loss={b_train_loss:.6f} "
-            f"train_acc={b_train_acc:.6f} "
-            f"test_loss={b_test_loss:.6f} "
-            f"test_acc={b_acc:.6f}"
+            f"[Baseline] train_acc={b_train_acc:.6f} test_acc={b_acc:.6f}"
         )
 
         results.append({
