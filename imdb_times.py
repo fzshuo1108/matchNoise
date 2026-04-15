@@ -130,7 +130,7 @@ def train_one_epoch(
     mean_loss = float(np.mean(losses)) if losses else 0.0
     mean_acc = float(np.mean(accuracies)) if accuracies else 0.0
 
-    print(f"[{tag}] epoch={epoch} train_loss={mean_loss:.6f} train_acc={mean_acc:.6f}")
+    print(f"[{tag}] epoch={epoch} train_acc={mean_acc:.6f}")
     return mean_loss, mean_acc
 
 
@@ -291,22 +291,13 @@ def run_one_experiment(args, run_seed):
         )
 
         print(
-            f"[Gaussian] train_loss={g_train_loss:.6f} "
-            f"train_acc={g_train_acc:.6f} "
-            f"test_loss={g_test_loss:.6f} "
-            f"test_acc={g_acc:.6f}"
+            f"[Gaussian] train_acc={g_train_acc:.6f} test_acc={g_acc:.6f}"
         )
         print(
-            f"[Product ] train_loss={p_train_loss:.6f} "
-            f"train_acc={p_train_acc:.6f} "
-            f"test_loss={p_test_loss:.6f} "
-            f"test_acc={p_acc:.6f}"
+            f"[Product ] train_acc={p_train_acc:.6f} test_acc={p_acc:.6f}"
         )
         print(
-            f"[Baseline] train_loss={b_train_loss:.6f} "
-            f"train_acc={b_train_acc:.6f} "
-            f"test_loss={b_test_loss:.6f} "
-            f"test_acc={b_acc:.6f}"
+            f"[Baseline] train_acc={b_train_acc:.6f} test_acc={b_acc:.6f}"
         )
 
         results.append({
