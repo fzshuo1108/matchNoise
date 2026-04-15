@@ -245,6 +245,13 @@ def run_one_experiment(args, run_seed):
         data_root=args.data_root,
     )
 
+    # baseline 单独用一份干净 loader
+    baseline_train_loader, _ = build_dataloaders(
+        batch_size=args.batch_size,
+        batch_size_test=args.batch_size_test,
+        data_root=args.data_root,
+    )
+
     base_model = convnet(num_classes=10)
 
     gaussian_model = copy.deepcopy(base_model).to(device)
@@ -265,11 +272,18 @@ def run_one_experiment(args, run_seed):
         weight_decay=0.0,
     )
 
+    # 只修 baseline
     baseline_optimizer = optim.SGD(
         baseline_model.parameters(),
-        lr=args.lr,
-        momentum=args.momentum,
-        weight_decay=0.0,
+        lr=0.05,
+        momentum=0.9,
+        weight_decay=5e-4,
+    )
+
+    baseline_scheduler = optim.lr_scheduler.MultiStepLR(
+        baseline_optimizer,
+        milestones=[60, 80],
+        gamma=0.1,
     )
 
     product_sigma_M, M = matched_product_sigma_M(
@@ -324,7 +338,7 @@ def run_one_experiment(args, run_seed):
 
         b_train_loss, b_train_acc = train_epoch_baseline(
             model=baseline_model,
-            train_loader=train_loader,
+            train_loader=baseline_train_loader,
             optimizer=baseline_optimizer,
             device=device,
         )
@@ -333,22 +347,24 @@ def run_one_experiment(args, run_seed):
         p_test_loss, p_acc = evaluate(product_model, test_loader, device)
         b_test_loss, b_acc = evaluate(baseline_model, test_loader, device)
 
+        baseline_scheduler.step()
+
         print(
-            f"[Gaussian] train_loss={g_train_loss:.6f} "
+            f"[Gaussian]  "
             f"train_acc={g_train_acc:.6f} "
-            f"test_loss={g_test_loss:.6f} "
+            
             f"test_acc={g_acc:.6f}"
         )
         print(
-            f"[Product ] train_loss={p_train_loss:.6f} "
+            f"[Product ]  "
             f"train_acc={p_train_acc:.6f} "
-            f"test_loss={p_test_loss:.6f} "
+            
             f"test_acc={p_acc:.6f}"
         )
         print(
-            f"[Baseline] train_loss={b_train_loss:.6f} "
+            f"[Baseline]  "
             f"train_acc={b_train_acc:.6f} "
-            f"test_loss={b_test_loss:.6f} "
+            
             f"test_acc={b_acc:.6f}"
         )
 
